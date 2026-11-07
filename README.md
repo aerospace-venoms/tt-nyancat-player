@@ -24,7 +24,7 @@ python3 model/nyan.py wav out/nyan_model.wav   # listen to the reference model
 
 cd test
 make -B                                 # cocotb tests (whole song, octaves, pause)
-make wav                                # simulate the RTL in real time -> out/nyan_rtl.wav (~2 min)
+make wav                                # simulate the RTL in real time -> out/nyan_rtl.wav (~30 s)
 aplay ../out/nyan_rtl.wav
 ```
 

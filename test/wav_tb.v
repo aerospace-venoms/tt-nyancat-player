@@ -52,7 +52,7 @@ module wav_tb ();
     fd = $fopen(fname, "w");
     repeat (4) @(posedge clk);
     rst_n = 1;
-    for (k = 0; k < slots * (262144 / 28); k = k + 1) begin
+    for (k = 0; k < slots * 65536 / 28; k = k + 1) begin  // 2^16 clocks per slot
       repeat (28) @(posedge clk);
       $fwrite(fd, "%s", (uo_out[0] & ~uo_out[1]) ? "+" : (uo_out[1] & ~uo_out[0]) ? "-" : "0");
     end

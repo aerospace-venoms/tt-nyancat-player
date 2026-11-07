@@ -25,9 +25,10 @@ from pathlib import Path
 # Timing
 # ---------------------------------------------------------------------------
 CLOCK_HZ = 1_240_000
-SLOT_BITS = 18                     # one eighth note = 2**18 clocks (~141.9 BPM)
+SLOT_BITS = 16                     # one eighth note = 2**16 clocks (~567.6 BPM)
 SLOT_CLKS = 1 << SLOT_BITS
-GAP_BITS = 14                      # a new note is silent for its first 2**14 clocks (~13 ms)
+GAP_BITS = 12                      # a new note is silent for its first 2**12 clocks (~3.3 ms)
+FFWD_BITS = 3                      # fast-forward (ui[3]) runs the song 2**3 = 8x faster
 TRANSPOSE = 24                     # semitones added to the written melody (piezo-friendly range)
 
 # ---------------------------------------------------------------------------

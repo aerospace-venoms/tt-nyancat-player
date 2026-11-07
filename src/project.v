@@ -6,8 +6,8 @@
  * push-pull on uo[0]/uo[1] so a piezo across those two pins sees twice
  * the voltage swing.
  *
- * Timing at 1.24 MHz: one eighth note = 2^18 clocks (~141.9 BPM).
- * A single 26-bit counter holds {slot[7:0], position-in-slot[17:0]};
+ * Timing at 1.24 MHz: one eighth note = 2^16 clocks (~567.6 BPM).
+ * A single 24-bit counter holds {slot[7:0], position-in-slot[15:0]};
  * the song is 256 eighth-note slots (A, A', B, B).
  */
 
@@ -31,17 +31,17 @@ module tt_um_aerospace_venoms_nyancat (
   // ---- controls ----
   wire       pause  = ui_in[0];     // freeze the song and mute
   wire [1:0] octave = ui_in[2:1];   // play 0..3 octaves lower
-  wire       ffwd   = ui_in[3];     // fast-forward: song runs 16x faster
+  wire       ffwd   = ui_in[3];     // fast-forward: song runs 8x faster
 
   // ---- song position ----
-  reg  [25:0] cnt;
-  wire [7:0]  slot       = cnt[25:18];
-  wire        slot_start = (cnt[17:0] == 18'd0);
-  wire        in_gap     = (cnt[17:14] == 4'd0);   // first ~13 ms of a slot
+  reg  [23:0] cnt;
+  wire [7:0]  slot       = cnt[23:16];
+  wire        slot_start = (cnt[15:0] == 16'd0);
+  wire        in_gap     = (cnt[15:12] == 4'd0);   // first ~3.3 ms of a slot
 
-  // Fast-forward steps by 16 and clears the low bits, so slot_start is
+  // Fast-forward steps by 8 and clears the low bits, so slot_start is
   // still hit exactly once per slot whenever ffwd is toggled.
-  wire [25:0] cnt_next = {cnt[25:4], ffwd ? 4'hF : cnt[3:0]} + 26'd1;
+  wire [23:0] cnt_next = {cnt[23:3], ffwd ? 3'h7 : cnt[2:0]} + 24'd1;
 
   wire [3:0] code;
   nyan_rom rom (
@@ -70,7 +70,7 @@ module tt_um_aerospace_venoms_nyancat (
 
   always @(posedge clk) begin
     if (!rst_n) begin
-      cnt   <= 26'd0;
+      cnt   <= 24'd0;
       note  <= CODE_REST;
       fresh <= 1'b0;
       div   <= {DIV_BITS{1'b0}};
