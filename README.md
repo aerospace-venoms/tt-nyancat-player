@@ -1,6 +1,8 @@
-![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/wokwi_test/badge.svg) ![](../../workflows/fpga/badge.svg)
+![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# Tiny Tapeout Wokwi Project Template
+# Nyan Cat player for Tiny Tapeout
+
+Plays the Nyan Cat loop on a piezo buzzer from a 1x1 tile at 1.24 MHz.
 
 - [Read the documentation for project](docs/info.md)
 
@@ -10,11 +12,24 @@ Tiny Tapeout is an educational project that aims to make it easier and cheaper t
 
 To learn more and get started, visit https://tinytapeout.com.
 
-## Wokwi Projects
+## Development
 
-Edit the [info.yaml](info.yaml) and change the `wokwi_id` to the ID of your Wokwi project. You can find the ID in the URL of your project, it's the big number after `wokwi.com/projects/`.
+```sh
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r test/requirements.txt
 
-The GitHub action will automatically fetch the digital netlist from Wokwi and build the ASIC files.
+python3 model/nyan.py report            # pitch table and error in cents
+python3 model/nyan.py gen               # regenerate src/nyan_tables.v after editing the song
+python3 model/nyan.py wav out/nyan_model.wav   # listen to the reference model
+
+cd test
+make -B                                 # cocotb tests (whole song, octaves, pause)
+make wav                                # simulate the RTL in real time -> out/nyan_rtl.wav (~2 min)
+aplay ../out/nyan_rtl.wav
+```
+
+The song lives in `model/nyan.py`; `src/nyan_tables.v` is generated from it and the tests check the
+hardware against it.
 
 ## Enable GitHub actions to build the results page
 

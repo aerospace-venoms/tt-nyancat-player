@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""
+Nyan Cat player -- reference model and table generator.
+
+This file is the single source of truth for the song. It:
+  * defines the melody (one token per eighth-note slot),
+  * derives the pitch table (half-period divider values at CLOCK_HZ),
+  * generates src/nyan_tables.v (note ROM + pitch table) for the RTL,
+  * renders an ideal WAV of what the chip should sound like,
+  * reports pitch error per note.
+
+Usage:
+  python model/nyan.py report          # pitch table + error in cents
+  python model/nyan.py gen             # write src/nyan_tables.v
+  python model/nyan.py wav out.wav     # render reference WAV (one loop)
+"""
+
+import math
+import struct
+import sys
+import wave
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Timing
+# ---------------------------------------------------------------------------
+CLOCK_HZ = 1_240_000
+SLOT_BITS = 18                     # one eighth note = 2**18 clocks (~141.9 BPM)
+SLOT_CLKS = 1 << SLOT_BITS
+GAP_BITS = 14                      # a new note is silent for its first 2**14 clocks (~13 ms)
+TRANSPOSE = 24                     # semitones added to the written melody (piezo-friendly range)
+
+# ---------------------------------------------------------------------------
+# Melody. One token per eighth-note slot:
+#   <note><octave>  start a new note (e.g. F#4, B3)
+#   -               hold the previous note
+#   .               rest
+# Written in a low octave; TRANSPOSE shifts it up for playback.
+# ---------------------------------------------------------------------------
+SECTION_A = """
+F#4 -   G#4 -   D#4 D#4 .   B3
+D4  C#4 B3  .   B3  -   C#4 -
+D4  -   D4  C#4 B3  C#4 D#4 F#4
+G#4 D#4 F#4 C#4 D#4 B3  C#4 B3
+D#4 -   F#4 -   G#4 D#4 F#4 C#4
+D#4 B3  D4  D#4 D4  C#4 B3  C#4
+D4  -   B3  C#4 D#4 F#4 C#4 D4
+C#4 B3  C#4 -   B3  -   C#4 -
+"""
+
+SECTION_B = """
+B3  -   F#3 G#3 B3  -   F#3 G#3
+B3  C#4 D#4 B3  E4  D#4 E4  F#4
+B3  -   B3  -   F#3 G#3 B3  F#3
+E4  D#4 C#4 B3  F#3 D#3 E3  F#3
+B3  -   F#3 G#3 B3  -   F#3 G#3
+B3  B3  C#4 D#4 B3  F#3 G#3 F#3
+B3  -   B3  A#3 B3  F#3 G#3 B3
+E4  D#4 E4  F#4 B3  -   C#4 -
+"""
+
+# Play order: A, A', B, B  (256 slots per loop). A' is A with one slot patched:
+A_PRIME_PATCH = (62, "B3")         # second ending: ... C#4 B3 B3
+
+NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+HOLD, REST = 0, 1                  # ROM codes; pitches start at 2
+
+
+def midi(tok):
+    name, octave = tok[:-1], int(tok[-1])
+    return 12 * (octave + 1) + NAMES.index(name) + TRANSPOSE
+
+
+def note_name(m):
+    return f"{NAMES[m % 12]}{m // 12 - 1}"
+
+
+def freq(m):
+    return 440.0 * 2 ** ((m - 69) / 12)
+
+
+def tokens(section):
+    t = section.split()
+    assert len(t) == 64, f"section must be 64 slots, got {len(t)}"
+    return t
+
+
+A_TOK = tokens(SECTION_A)
+B_TOK = tokens(SECTION_B)
+A2_TOK = list(A_TOK)
+A2_TOK[A_PRIME_PATCH[0]] = A_PRIME_PATCH[1]
+SONG_TOK = A_TOK + A2_TOK + B_TOK + B_TOK          # 256 slots, one loop
+
+PITCHES = sorted({midi(t) for t in SONG_TOK if t not in "-."})
+assert len(PITCHES) <= 14, "only 14 pitch codes available"
+
+
+def code(tok):
+    if tok == "-":
+        return HOLD
+    if tok == ".":
+        return REST
+    return 2 + PITCHES.index(midi(tok))
+
+
+ROM = [code(t) for t in A_TOK + B_TOK]             # 128 entries stored on chip
+PATCH_ADDR, PATCH_CODE = A_PRIME_PATCH[0], code(A_PRIME_PATCH[1])
+
+
+def half_period(m):
+    """Clocks per half period (tone counter reloads with half_period-1)."""
+    return round(CLOCK_HZ / (2 * freq(m)))
+
+
+def cents(actual, ideal):
+    return 1200 * math.log2(actual / ideal)
+
+
+def rom_code(slot):
+    """Code the hardware sees at song slot 0..255 (mirrors RTL addressing)."""
+    second_a = (slot >> 6) == 1
+    addr = ((slot >> 7) << 6) | (slot & 63)
+    if second_a and addr == PATCH_ADDR:
+        return PATCH_CODE
+    return ROM[addr]
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+def report():
+    print(f"clock {CLOCK_HZ} Hz, slot = 2^{SLOT_BITS} clks = {SLOT_CLKS / CLOCK_HZ * 1000:.2f} ms "
+          f"(eighth note @ {60 / (2 * SLOT_CLKS / CLOCK_HZ):.2f} BPM)")
+    print(f"{'code':>4} {'note':>5} {'ideal Hz':>9} {'N':>5} {'actual Hz':>10} {'cents':>6}")
+    worst = 0
+    for i, m in enumerate(PITCHES):
+        n = half_period(m)
+        f = CLOCK_HZ / (2 * n)
+        c = cents(f, freq(m))
+        worst = max(worst, abs(c))
+        print(f"{i + 2:>4} {note_name(m):>5} {freq(m):9.2f} {n:5d} {f:10.2f} {c:+6.2f}")
+    print(f"worst error {worst:.2f} cents; divider needs {max(half_period(m) for m in PITCHES).bit_length()} bits")
+    print(f"ROM: {len(ROM)} x 4 bits")
+
+
+def gen(path):
+    nbits = 10                     # must match DIV_BITS in src/project.v
+    assert max(half_period(m) - 1 for m in PITCHES).bit_length() <= nbits, "divider too wide"
+    L = []
+    L.append("// GENERATED by model/nyan.py -- do not edit by hand.")
+    L.append(f"// Clock {CLOCK_HZ} Hz, transpose {TRANSPOSE:+d} semitones.")
+    L.append("`default_nettype none\n")
+    L.append("// Song ROM: 128 eighth-note slots (A section then B section).")
+    L.append("// code 0 = hold previous note, 1 = rest, 2.. = pitch index + 2")
+    L.append("module nyan_rom (")
+    L.append("    input  wire [6:0] addr,")
+    L.append("    input  wire       second_a,   // high during the second pass of section A")
+    L.append("    output reg  [3:0] code")
+    L.append(");")
+    L.append("  always @(*) begin")
+    L.append("    case (addr)")
+    for a, c in enumerate(ROM):
+        tok = (A_TOK + B_TOK)[a]
+        L.append(f"      7'd{a:<3}: code = 4'd{c:<2}; // {tok}")
+    L.append("      default: code = 4'd0;")
+    L.append("    endcase")
+    L.append(f"    if (second_a && addr == 7'd{PATCH_ADDR}) code = 4'd{PATCH_CODE}; // A' ending")
+    L.append("  end")
+    L.append("endmodule\n")
+    L.append("// Pitch table: half-period minus one, in clocks.")
+    L.append("module nyan_pitch (")
+    L.append("    input  wire [3:0] note,")
+    L.append(f"    output reg  [{nbits - 1}:0] half_m1")
+    L.append(");")
+    L.append("  always @(*) begin")
+    L.append("    case (note)")
+    for i, m in enumerate(PITCHES):
+        n = half_period(m)
+        L.append(f"      4'd{i + 2:<2}: half_m1 = {nbits}'d{n - 1:<4}; // {note_name(m):4} {CLOCK_HZ / (2 * n):8.2f} Hz")
+    L.append(f"      default: half_m1 = {nbits}'d0;")
+    L.append("    endcase")
+    L.append("  end")
+    L.append("endmodule")
+    Path(path).write_text("\n".join(L) + "\n")
+    print(f"wrote {path}")
+
+
+def write_wav(path, samples, rate):
+    with wave.open(str(path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(b"".join(struct.pack("<h", s) for s in samples))
+
+
+def render(path, loops=1, rate=44100):
+    """Ideal render with the same quantised pitches, tempo and gaps as the chip."""
+    out = []
+    cur = REST
+    for slot in list(range(256)) * loops:
+        c = rom_code(slot)
+        fresh = c != HOLD
+        if fresh:
+            cur = c
+            t_note = 0.0
+        t0 = slot * SLOT_CLKS / CLOCK_HZ
+        n0 = round(t0 * rate)
+        n1 = round((slot + 1) * SLOT_CLKS / CLOCK_HZ * rate)
+        gap = (1 << GAP_BITS) / CLOCK_HZ if fresh else 0.0
+        if cur == REST:
+            out.extend([0] * (n1 - n0))
+            continue
+        n = half_period(PITCHES[cur - 2])
+        f = CLOCK_HZ / (2 * n)
+        for k in range(n1 - n0):
+            t = k / rate
+            if t < gap:
+                out.append(0)
+            else:
+                out.append(8000 if math.fmod((t_note + t) * f, 1.0) < 0.5 else -8000)
+        t_note += (n1 - n0) / rate
+    write_wav(path, out, rate)
+    print(f"wrote {path} ({len(out) / rate:.1f} s)")
+
+
+if __name__ == "__main__":
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "report"
+    if cmd == "report":
+        report()
+    elif cmd == "gen":
+        gen(sys.argv[2] if len(sys.argv) > 2 else Path(__file__).parent.parent / "src" / "nyan_tables.v")
+    elif cmd == "wav":
+        render(sys.argv[2] if len(sys.argv) > 2 else "nyan_model.wav",
+               loops=int(sys.argv[3]) if len(sys.argv) > 3 else 1)
+    else:
+        sys.exit(__doc__)
