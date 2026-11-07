@@ -50,7 +50,7 @@ include $(shell cocotb-config --makefiles)/Makefile.sim
 
 # ---- Audio: simulate at the real clock and render a WAV you can listen to ----
 #   make wav                 -> ../out/nyan_rtl.wav (one loop)
-#   make wav SLOTS=32 UI=2   -> first 32 eighth notes, ui_in=2 (one octave down)
+#   make wav SLOTS=32 UI=2   -> first 32 16th notes, ui_in=2 (one octave down)
 #   make wav GATES=yes       -> ../out/nyan_gl.wav from the gate-level netlist
 SLOTS ?= 256
 UI ?= 0

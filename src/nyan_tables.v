@@ -2,7 +2,7 @@
 // Clock 1240000 Hz, transpose +24 semitones.
 `default_nettype none
 
-// Song ROM: 128 eighth-note slots (A section then B section).
+// Song ROM: 128 16th-note slots (A section then B section).
 // code 0 = hold previous note, 1 = rest, 2.. = pitch index + 2
 module nyan_rom (
     input  wire [6:0] addr,

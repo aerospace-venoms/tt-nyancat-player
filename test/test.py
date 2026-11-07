@@ -23,7 +23,7 @@ UI_PAUSE = 1 << 0
 UI_OCT_SHIFT = 1        # ui[2:1]
 UI_FFWD = 1 << 3
 
-SLOT = nyan.SLOT_CLKS                       # clocks per eighth note
+SLOT = nyan.SLOT_CLKS                       # clocks per 16th-note slot
 SLOT_FFWD = SLOT >> nyan.FFWD_BITS          # fast-forward runs 8x faster
 GAP_FFWD = (1 << nyan.GAP_BITS) >> nyan.FFWD_BITS
 

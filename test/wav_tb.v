@@ -7,7 +7,7 @@
  * test/wav.py turns that file into a WAV.
  *
  * Plusargs:
- *   +slots=N    eighth-note slots to simulate (default 256 = one loop)
+ *   +slots=N    16th-note slots to simulate (default 256 = one loop)
  *   +ui=N       value for ui_in (default 0)
  *   +out=FILE   sample file (default wav_samples.txt)
  *
@@ -52,7 +52,7 @@ module wav_tb ();
     fd = $fopen(fname, "w");
     repeat (4) @(posedge clk);
     rst_n = 1;
-    for (k = 0; k < slots * 65536 / 28; k = k + 1) begin  // 2^16 clocks per slot
+    for (k = 0; k < slots * 131072 / 28; k = k + 1) begin  // 2^17 clocks per slot
       repeat (28) @(posedge clk);
       $fwrite(fd, "%s", (uo_out[0] & ~uo_out[1]) ? "+" : (uo_out[1] & ~uo_out[0]) ? "-" : "0");
     end
